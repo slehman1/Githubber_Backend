@@ -26,6 +26,11 @@ app.use(cors())
 app.use(express.json()) 
 app.use(express.urlencoded({ extended: true }))
 
+app.get("/", (req, res) => {
+    res.json("Hello")
+})
+
+
 
 app.post("/compare", async (req, res) => {
     const {user1, user2} = req.body
