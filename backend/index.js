@@ -20,7 +20,7 @@ const supabaseKey = process.env.SUPABASE_KEY
 const supabase = createClient(supabaseUrl, supabaseKey)
 
 //config express
-const port = 8080
+const port = process.env.PORT || 8080
 const app = express()
 app.use(cors())
 app.use(express.json()) 
