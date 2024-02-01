@@ -30,33 +30,36 @@ app.get("/", (req, res) => {
     res.json("Hello")
 })
 
-
+//compare metrics between two users route
 app.post("/compare", async (req, res) => {
     const {user1, user2} = req.body
+    const threeMonths = 3 * 30 * 24 * 60 * 60 * 1000 
+    const threeMonthRange = Date.now() - threeMonths
     const resArray = []
-    const userz1Data = await userStats(user1)
-    const userz2Data = await userStats(user2)
+    const userz1Data = await userStats(user1, threeMonthRange)
+    const userz2Data = await userStats(user2, threeMonthRange)
     resArray.push(userz1Data)
     resArray.push(userz2Data)
     res.json(resArray)
 })
 
+//get logged in user info
 app.post("/user", async (req, res) => {
     const {username} = req.body
     const userz1Data = await userStats(username)
+    // console.log(userz1Data)
     res.json(userz1Data)
 })
 
 
+//gets a list of repo names from the user
 
 app.post("/repos", async (req, res) => {
-    //gets a list of repo names from the user
     const user = req.body.user1
     if (user === ""){
         res.json("Error")
         return
     }
-    
     
     const user1Repos = await octokit.request("GET /users/{username}/repos", {
         username: user,
@@ -72,9 +75,10 @@ app.post("/repos", async (req, res) => {
     res.json(resData)
 })
 
+//get info of interest for a specific repo
 app.post("/repoInfo", async (req, res) => {
     const {user1, repo} = req.body
-    
+
     //get bytes per language
     const repoLanguages = await octokit.request('GET /repos/{owner}/{repo}/languages', {
         owner: user1,
@@ -84,42 +88,13 @@ app.post("/repoInfo", async (req, res) => {
         }
     })
     
-    //get all commmits and then get lines added and deleted per commit
-    const userCommits = await octokit.request('GET /repos/{owner}/{repo}/commits', {
-        owner: user1,
-        repo: repo,
-        headers: {
-          'X-GitHub-Api-Version': '2022-11-28'
-        }
-    })
-    const commitShas = []
-    userCommits.data.forEach((commit) => {
-        commitShas.push(commit.sha)
-    })
-    var currLines = 0
-    const linesArray = []
-    var z = 0
-    for (let i = commitShas.length - 1; i > -1; i--){
-        z += 1
-        const currSha = commitShas[i]
-        const response = await octokit.request('GET /repos/{owner}/{repo}/commits/{sha}', {
-            owner: user1,
-            repo: repo,
-            sha: currSha,
-            headers: {
-              'X-GitHub-Api-Version': '2022-11-28'
-            }
-        })
-        const change = response.data.stats.additions - response.data.stats.deletions
-        if (i === commitShas.length - 1){
-            linesArray.push(change)
-        } else {
-            const prevLines = linesArray[z - 2]
-            const newTotal = prevLines + change
-            linesArray.push(newTotal)
-        }
-    }
+    //get lines
+    const threeMonths = 3 * 30 * 24 * 60 * 60 * 1000 
+    const threeMonthRange = Date.now() - threeMonths
+    const linesRes = await getLines(user1, repo, threeMonthRange)
+    const linesArray = linesRes.linesArray
 
+    //get repo info
     const repoInfoResponse = await octokit.request('GET /repos/{owner}/{repo}', {
         owner: user1,
         repo: repo,
@@ -128,22 +103,21 @@ app.post("/repoInfo", async (req, res) => {
         }
     })
 
+    //package to send
     const repoInfo = {
         forks: repoInfoResponse.data.forks,
         stars: repoInfoResponse.data.stargazers_count,
         openIssues: repoInfoResponse.data.open_issues,
     }
-
     const resData = {
         languages: repoLanguages.data,
         lineNums: linesArray,
         info: repoInfo
     }
-
-    
     res.json(resData)
 })
 
+//login route
 app.post("/login", async (req, res) => {
     const {username, password} = req.body
     try {
@@ -162,12 +136,9 @@ app.post("/login", async (req, res) => {
     } catch {
         res.send("None")
     }
-    
-
-    
 })
 
-
+//register route
 app.post("/register", async (req, res) => {
     const {username, password} = req.body
     //check if username already in use
@@ -194,16 +165,15 @@ app.post("/register", async (req, res) => {
             });
         });  
     }
-
-    
 })
 
 app.listen(port, () => {
     console.log("listening on port 8080")
 });
 
+
 //takes in a username and returns an object with desired info
-async function userStats(username){
+async function userStats(username, rangeEpoch){
     //get all their repositories
     const user1Repos = await octokit.request("GET /users/{username}/repos", {
         username: username,
@@ -213,13 +183,15 @@ async function userStats(username){
     })
     var user1stars = 0
     var user1OpenIssues = 0
-    var user1TotalBytes = 0
+    var recentRepos = 0
     user1Repos.data.forEach((repo) => {
+        const repoDate = new Date(repo.created_at).getTime()
+            if (repoDate > rangeEpoch) {
+                recentRepos += 1
+            }
         const openIssue = repo.open_issues
-        const bytes = repo.size
         const stars = repo.stargazers_count
         user1OpenIssues += openIssue
-        user1TotalBytes += bytes
         user1stars += stars
     })
 
@@ -244,8 +216,9 @@ async function userStats(username){
         }
     }
     
-    //calculate commits
-    var user1commits = 0
+    //calculate commits for each repo
+    var userCommits = 0
+    var userRecentCommits = 0
     for (let i = 0; i < user1Repos.data.length; i++){
         const repoName = user1Repos.data[i].name
         const user1commitsResponse = await octokit.request('GET /repos/{owner}/{repo}/commits?author={owner}', {
@@ -255,11 +228,18 @@ async function userStats(username){
               'X-GitHub-Api-Version': '2022-11-28'
             }
         })
-        user1commits += user1commitsResponse.data.length
+        user1commitsResponse.data.forEach((commits) => {
+            const commitDate = new Date(commits.commit.committer.date).getTime()
+            if (commitDate > rangeEpoch) {
+                userRecentCommits += 1
+            }
+        })
+        userCommits += user1commitsResponse.data.length
     }
     
     //calculate pulls
-    var user1PullRequests = 0
+    var userPRs = 0
+    var userPRsRecent = 0
     for (let i = 0; i < user1Repos.data.length; i++){
         const repoName = user1Repos.data[i].name
         const user1PullsResponse = await octokit.request('GET /repos/{owner}/{repo}/pulls', {
@@ -269,21 +249,103 @@ async function userStats(username){
               'X-GitHub-Api-Version': '2022-11-28'
             }
         })
-        user1PullRequests += user1PullsResponse.data.length
+        //check within epoch range
+        user1PullsResponse.data.forEach((pull) => {
+            const pullDate = pull.created_at
+            const pullEpoch = new Date(pullDate)
+            if (pullEpoch > rangeEpoch){
+                userPRsRecent += 1
+            }
+        })
+        userPRs += user1PullsResponse.data.length
+    }
+    //calculate lines through the commits of each repo
+    var userLines = 0
+    const threeMonths = 3 * 30 * 24 * 60 * 60 * 1000 
+    const threeMonthRange = Date.now() - threeMonths
+    var recentLines = 0
+    for (let i = 0; i < user1Repos.data.length; i++){
+        const repoName = user1Repos.data[i].name
+        const rez = await getLines(username, repoName, threeMonthRange)
+        const repoLines = rez.linesArray[rez.linesArray.length - 1]
+        userLines += repoLines
+        recentLines += rez.recentLines
     }
     
+    
     const user1Data = {
-        user: username,
-        stars: user1stars,
-        commits: user1commits,
-        prs: user1PullRequests,
-        repoCount: user1Repos.data.length,
-        openIssues: user1OpenIssues,
-        totalBytes: user1TotalBytes,
-        languageDict: languageDict1,
+        total: {
+            user: username,
+            stars: user1stars,
+            commits: userCommits,
+            prs: userPRs,
+            lines: userLines,
+            repoCount: user1Repos.data.length,
+            openIssues: user1OpenIssues,
+            languageDict: languageDict1,
+
+        }, 
+        recent: {
+            user: username,
+            stars: user1stars,
+            commits: userRecentCommits,
+            prs: userPRsRecent,
+            lines: recentLines,
+            repoCount: recentRepos,
+        }
     }
     
     return user1Data
 
 
+}
+
+async function getLines(owner, repo, recentRange){
+    //get all commmits and then get lines added and deleted per commit
+    //return an array of the lines over time as well as a total line number for the repo that is recent
+    const userCommits = await octokit.request('GET /repos/{owner}/{repo}/commits', {
+        owner: owner,
+        repo: repo,
+        headers: {
+          'X-GitHub-Api-Version': '2022-11-28'
+        }
+    })
+    const commitShas = []
+    userCommits.data.forEach((commit) => {
+        commitShas.push(commit.sha)
+    })
+    var currLines = 0
+    const linesArray = []
+    var z = 0
+    var recentLines = 0;
+    for (let i = commitShas.length - 1; i > -1; i--){
+        z += 1
+        const currSha = commitShas[i]
+        const response = await octokit.request('GET /repos/{owner}/{repo}/commits/{sha}', {
+            owner: owner,
+            repo: repo,
+            sha: currSha,
+            headers: {
+              'X-GitHub-Api-Version': '2022-11-28'
+            }
+        })
+        const commitDate = new Date(response.data.commit.committer.date).getTime()
+        const change = response.data.stats.additions - response.data.stats.deletions
+        //add change if within recent range
+        if (commitDate > recentRange) {
+            recentLines += change
+        }
+        if (i === commitShas.length - 1){
+            linesArray.push(change)
+        } else {
+            const prevLines = linesArray[z - 2]
+            const newTotal = prevLines + change
+            linesArray.push(newTotal)
+        }
+    }
+    const returnObj = {
+        linesArray: linesArray,
+        recentLines: recentLines
+    }
+    return returnObj
 }
