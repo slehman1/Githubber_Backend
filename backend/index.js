@@ -230,7 +230,7 @@ app.post("/register", async (req, res) => {
 
 
 //foryou layout route
-app.post("/layout", async (req, res) => {
+app.post("/storelayout", async (req, res) => {
   const {username, layout} = req.body
   try {
     const { error } = await supabase
@@ -250,8 +250,8 @@ app.post("/layout", async (req, res) => {
 })
 
 
-app.get("/layout/:username", async (req, res) => {
-  const {username} = req.params
+app.post("/getlayout", async (req, res) => {
+  const {username} = req.body
   try {
     const { data, error } = await supabase
     .from('users')
