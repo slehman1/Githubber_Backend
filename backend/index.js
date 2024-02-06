@@ -21,79 +21,9 @@ const headers = {
     Authorization: "bearer " + process.env.AUTH_KEY
 }
 
-// fetch(githubAPIEndpoint, {
-//     method: "POST", 
-//     headers: headers,
-//     body: JSON.stringify({
-//         query: `
-//         query getInfo($username: String!) {
-//             user(login: $username){
-//               bio
-//               company
-//               createdAt
-//               email
-//               followers{
-//                 totalCount
-//               }
-//               isHireable
-//               location
-//               name
-//               organizations{
-//                 totalCount
-//               }
-//               pullRequests(first: 100){
-//                 totalCount
-//                 nodes{
-//                   createdAt
-//                   body
-//                 }
-//               }
-//               starredRepositories{
-//                 totalCount
-//               }
-//               repositories(first: 100){
-//                 totalCount
-//                 nodes{
-//                   createdAt
-//                   name
-//                   defaultBranchRef{
-//                     target{
-//                       ... on Commit {
-//                         history {
-//                           totalCount
-//                           nodes{
-//                             committedDate
-//                             additions
-//                             deletions
-//                           }
-//                         }
-//                       }
-//                     }
-//                   }
-//                 }
-                
-//               }
-//             }
-//           }
-//         `,
-//         variables: {"username": "rsn55"} 
-//     }),
-
-// }).then(res =>  res.json()).then(data => console.log(data)).catch(err => console.log(err))
-
-
-
-
-/////////////
-
-
-
-
-
-
 
 //octokit simplifies github api calls
-const octokit = new Octokit({ auth: process.env.AUTH_KEY });
+// const octokit = new Octokit({ auth: process.env.AUTH_KEY });
 
 //supabase db server hosting
 const supabaseUrl = 'https://btsemxwskradoknjgqau.supabase.co'
@@ -128,7 +58,6 @@ app.post("/compare", async (req, res) => {
 app.post("/user", async (req, res) => {
     const {username} = req.body
     const userz1Data = await userStats(username)
-    console.log(userz1Data)
     res.json(userz1Data)
 })
 
@@ -298,6 +227,50 @@ app.post("/register", async (req, res) => {
         });  
     }
 })
+
+
+//foryou layout route
+app.post("/layout", async (req, res) => {
+  const {username, layout} = req.body
+  try {
+    const { error } = await supabase
+    .from('users')
+    .update({ for_you: JSON.stringify(layout) })
+    .eq('username', username)
+    if (error) {
+      res.send(error)
+    } else {
+      res.send("Success")
+    }
+
+
+  } catch {
+      res.send("None")
+  }
+})
+
+
+app.get("/layout/:username", async (req, res) => {
+  const {username} = req.params
+  try {
+    const { data, error } = await supabase
+    .from('users')
+    .select('for_you')
+    .eq('username', username)
+    // if (error) {
+    //   res.send(error)
+    // } else {
+    //   res.send("Success")
+    // }
+    res.send(data[0])
+
+
+  } catch {
+      res.send("None")
+  }
+})
+
+
 
 app.listen(port, () => {
     console.log("listening on port 8080")
